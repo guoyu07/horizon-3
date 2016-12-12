@@ -1,0 +1,365 @@
+在ecmall.php文件中实例化控制器类，每一个控制器类，必须继承（extends）upload\admin\app\backend.base.php文件。在继承中调用方法是谁先被继承谁的方法被先调用。
+
+以default为例，首先在公共入口文件index.php文件中包含eccore/ecmall.php文件，调用startup方法并把includes/global.lib.php，includes/libraries/time.lib.php，includes/ecapp.base.php，includes/plugin.base.php，app/backend.base.php，以数据方式传递。在ECMAall类中的startup()方法中包含了eccore/controller/app.base.php和eccore/model/model.base.php文件。
+
+获得控制器默认为[upload\admin\app\default.app.php文件，并继承BackendApp（app/backend.base.php）类，并继承ECBaseApp（includes/ecapp.base.ph）类，并继承BaseApp（eccore/controller/app.base.php），并继承Object（eccore/ecmall.php）]。然后调用ECBaseApp中的do_action()方法在调用其实父类BaseApp中的do_action()并判断$act(index)方法在默认控制器中是否存在，如果存在并符合条件，调用本对像是最早继承文件（app/backend.base.php）他中的_run_action()方法。
+
+
+/**
+02
+	 *    后台的需要权限验证机制
+03
+	 *
+04
+	 *    @author    Garbin
+05
+	 *    @return    void
+06
+	 */
+07
+	function _run_action()
+08
+	{
+09
+	    /* 先判断是否登录 */
+10
+	    if (!$this->visitor->has_login)
+11
+	    {
+12
+	        $this->login();
+13
+	        return;
+14
+	    }
+15
+	    /* 登录后判断是否有权限 */
+16
+	    if (!$this->visitor->i_can('do_action', $this->visitor->get('privs')))
+17
+	    {
+18
+	        $this->show_warning('no_permission');
+19
+	        return;
+20
+	    }
+21
+	    /* 运行 */
+22
+	    parent::_run_action();
+
+在此要判断当前用户是否登录。
+
+如果没有登录，调用（app/backend.base.php）他中的login()方法。
+01
+	function login()
+02
+	{
+03
+	    if ($this->visitor->has_login)
+04
+	    {
+05
+	        $this->show_warning('has_login');
+06
+	        return;
+07
+	    }
+08
+	    if (!IS_POST)
+09
+	    {
+10
+	        if (Conf::get('captcha_status.backend'))
+11
+	        {
+12
+	            $this->assign('captcha', 1);
+13
+	        }
+14
+	        $this->display('login.html');
+15
+	    }
+16
+	    else
+17
+	    {
+18
+	        if (Conf::get('captcha_status.backend') && base64_decode($_SESSION['captcha']) != strtolower($_POST['captcha']))
+19
+	        {
+20
+	            $this->show_warning('captcha_faild');
+21
+	            return;
+22
+	        }
+23
+	        $user_name = trim($_POST['user_name']);
+24
+	        $password  = $_POST['password'];
+25
+	        $ms =& ms();
+26
+	        $user_id = $ms->user->auth($user_name, $password);
+27
+	        if (!$user_id)
+28
+	        {
+29
+	            /* 未通过验证，提示错误信息 */
+30
+	            $this->show_warning($ms->user->get_error());
+31
+	            return;
+32
+	        }
+33
+	        /* 通过验证，执行登陆操作 */
+34
+	        if (!$this->_do_login($user_id))
+35
+	        {
+36
+	            return;
+37
+	        }
+38
+	        $this->show_message('login_successed',
+39
+	            'go_to_admin', 'index.php');
+40
+	    }
+41
+	}
+
+
+
+然后调用includes/ecapp.base.php文件中的display()方法加载页面模板，在加载过程中需要给视图传递变量，调用eccore/controller/app.base.php中的assign()方法，在这个方法中还需要调用eccore/controller/app.base.php中的_init_view()方法，在这个过程中很重要因为他要引用返回eccore/ecmall.php文件中的& v()方法所引用的变量（引用eccore/view/template.php）文件，类似于加载，然后在eccore/controller/app.base.php中的assign()方法调用（eccore/view/template.php）文件assign()方法，以，键·值，形式赋值给_var数组中。
+
+display()函数：
+01
+	function display($f)
+02
+	{
+03
+	    if ($this->_hook('on_display', array('display_file' => & $f)))
+04
+	    {
+05
+	        return;
+06
+	    }
+07
+	    $this->assign('site_url', SITE_URL);
+08
+	    $this->assign('ecmall_version', VERSION);
+09
+	    $this->assign('random_number', rand());
+10
+	    /* 语言项 */
+11
+	    $this->assign('lang', Lang::get());
+12
+	    /* 用户信息 */
+13
+	    $this->assign('visitor', isset($this->visitor) ? $this->visitor->info : array());
+14
+	    /* 新消息 */
+15
+	    $this->assign('new_message', isset($this->visitor) ? $this->_get_new_message() : '');
+16
+	    $this->assign('charset', CHARSET);
+17
+	    $this->assign('price_format', Conf::get('price_format'));
+18
+	    $this->assign('async_sendmail', $this->_async_sendmail());
+19
+	    $this->_assign_query_info();
+20
+	    parent::display($f);
+21
+	    if ($this->_hook('end_display', array('display_file' => & $f)))
+22
+	    {
+23
+	        return;
+24
+	    }
+25
+	}
+
+
+assign()函数：
+01
+	/**
+02
+	 *    给视图传递变量
+03
+	 *
+04
+	 *    @author    Garbin
+05
+	 *    @param     string $k
+06
+	 *    @param     mixed  $v
+07
+	 *    @return    void
+08
+	 */
+09
+	function assign($k, $v = null)
+10
+	{
+11
+	    $this->_init_view();
+12
+	    if (is_array($k))
+13
+	    {
+14
+	        $args  = func_get_args();
+15
+	        foreach ($args as $arg)     //遍历参数
+16
+	        {
+17
+	            foreach ($arg as $key => $value)    //遍历数据并传给视图
+18
+	            {
+19
+	                $this->_view->assign($key, $value);
+20
+	            }
+21
+	        }
+22
+	    }
+23
+	    else
+24
+	    {
+25
+	        $this->_view->assign($k, $v);
+26
+	    }
+27
+	}
+
+_init_view()函数：
+01
+	/**
+02
+	 *    初始化视图连接
+03
+	 *
+04
+	 *    @author    Garbin
+05
+	 *    @param    none
+06
+	 *    @return    void
+07
+	 */
+08
+	function _init_view()
+09
+	{
+10
+	    if ($this->_view === null)
+11
+	    {
+12
+	        $this->_view =& v();
+13
+	        $this->_config_view();  //配置
+14
+	    }
+15
+	}
+
+在includes/ecapp.base.php文件中的display()中调用其父类eccore/controller/app.base.php中的display()方法，在display()方法中引用变量调用（eccore/view/template.php）文件中的display()方法，在display()方法中首先要判断当前的页面文件（upload\admin\templates）是否被修改如果有被修改重新缓存（upload\temp\compiled\admin）,在模板缓存的时候首先要用strpos()方法判断编码头部（\xEF\xBB\xBF）是否出现过，如果出现在用我们最常用的str_replace()方法把其替换为空。
+
+在页面提交中用到define('IS_POST', (strtoupper($_SERVER['REQUEST_METHOD']) == 'POST'))来判断是否提交，因为在页面提交的时候，$_SERVER['REQUEST_METHOD']默认为GET。
+
+在登录页面中用method="post"方法提交表单所以得到IS_POST定义值为TRUE，进入到执行SQL语句中，判断是否登录成功。
+
+在这个过程中要引用includes/global.lib.php文件中的&ms()方法（此方法中包含/includes/passport.base.php，/includes/passports/' . MEMBER_TYPE . '.passport.php，MEMBER_TYPE在data/config.inc.php中定义默认为default），把变量值地址引用到/includes/passports/default.passport.php文件中DefaultPassport类，DefaultPassport（/includes/passports/default.passport.ph）继承了BasePassport（/includes/passport.base.php）
+01
+	/**
+02
+	 *    连接会员系统
+03
+	 *
+04
+	 *    @author    Garbin
+05
+	 *    @return    Passport 会员系统连接接口
+06
+	 */
+07
+	function &ms()
+08
+	{
+09
+	    static $ms = null;
+10
+	    if ($ms === null)
+11
+	    {
+12
+	        include(ROOT_PATH . '/includes/passport.base.php');
+13
+	        include(ROOT_PATH . '/includes/passports/' . MEMBER_TYPE . '.passport.php');
+14
+	        $class_name  = ucfirst(MEMBER_TYPE) . 'Passport';
+15
+	        $ms = new $class_name();
+16
+	    }
+17
+	    return $ms;
+18
+	}
+
+在这个过程中，把若干类实例化，所以调用auth(&username,&password)判断用户是不是存在正确，如果正确获得用户ID执行登陆操作调用_do_login方法，在这里我们的回到刚加载文件时候的初始化中因为在includes/ecapp.base.php文件初始化的时候执行了$this->_init_visitor();方法引用了AdminVisitor他类并继承了BaseVisitor类，所以可以在_do_login()方法中应用$this->visitor->assign()方法，其实就是BaseVisitor类中的
+1
+	function assign($user_info)
+2
+	{
+3
+	    $_SESSION[$this->_info_key]   =   $user_info;
+4
+	}
+
+这样就把用户信息用SESSION保存，在执行操作的时候就可以对$this->has_login进行改变了。
+
+好了这就是登录了。
+
+其实他应用到"引用"和"继承"比较多所以会让初学者都感觉到很乱，没有头绪。引用就是不同的名字访问同一个变量内容，引用作为函数参数可以避免参数对象的额外拷贝。
+
+如果程序比较大,引用同一个对象的变量比较多,并且希望用完该对象后手工清除它,个人建议用 "&" 方式,然后用$var=null的方式清除.另外, php5中对于大数组的传递,建议用 "&" 方式, 毕竟节省内存空间使用。
+1
+	function qev(&$array)
+2
+	{
+3
+	     Var_export($array);
+4
+	}
+5
+	$array_qev = array(
+6
+	'1'=>'a','2'=>'b'
+7
+	)
+8
+	Qev($array_qev);
+
+继承其实结果就是为增加代码的可重用性，也就是你定义一个方法如果他有一定的共性可以被多个新增加的效果所调用。
+
+如果登录，在（app/backend.base.php）他文件_run_action()他方法中调其父类includes/ecapp.base.php文件中的_run_action()方法，在调用其父类eccore/controller/app.base.php他文件中的_run_action()方法，在此方法中调用自己所在的控制器（默认default）也就是（upload\admin\app\default.app.php）文件中的方法（默认index）index();
+
+这些只是一点程序走向结构，具体内容结构还没有研究。程序结构给人感觉似乎挺乱的，但是如果细心研究执行效果非常的好。
